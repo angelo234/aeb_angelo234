@@ -1,0 +1,9 @@
+{
+  "name" : "Automatic Emergency Braking (AEB)",
+  "author": "angelo234",
+  "version": "1.0",
+  "description": "Adds AEB to all vehicles.",
+  "directive": "aebAngelo234",
+  "domElement": "<aeb-angelo234></aeb-angelo234>",
+  "css": { "width": "350px", "height": "210px", "top": "200px", "left": "200px"}
+}
