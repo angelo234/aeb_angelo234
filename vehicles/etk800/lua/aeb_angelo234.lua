@@ -29,40 +29,36 @@ end
 local function updateGFX(dt)
 	if system_active and brake_applications < 2 then
 		brake_applications = brake_applications + 1
-		return
+		--return
 	end
 
 	local speed = vec3(obj:getVelocity()):length()
-
-	print("Speed: " .. speed)
-
+	
 	--Check if in reverse and if true, disable system
 	local in_reverse = electrics.values.reverse
 
 	if in_reverse == 1 then
-		input.event("brake", 0, FILTER_DIRECT)
-		system_active = false
-		
+		if system_active then
+			input.event("brake", 0, -1)
+			system_active = false
+		end
+			
 		return
 	end
 
 	if system_active then	
-		--Keep brakes applied if system was activated before to stop car
-		if speed < 3 then
-			input.event("brake", 1, FILTER_DIRECT)
-			
-			return
 		--Once stopped, if system was activated before, disable it and release brakes
-		elseif speed < 0.1 then
-			input.event("brake", 0, FILTER_DIRECT)
+		if speed < 0.1 then
+			input.event("brake", 0, -1)
 			system_active = false
+			return
+			
+		--Keep brakes applied if system was activated before to stop car
+		elseif speed < 3 then
+			input.event("brake", 1, -1)
+			
+			return	
 		end
-	end
-	
-	if speed < 3 and system_active ~= last_system_active then
-		input.event("brake", 0, FILTER_DIRECT)
-		system_active = false
-		return
 	end
 	
 	local max_d = 500
@@ -153,39 +149,34 @@ local function updateGFX(dt)
 	
 	local distance_min = math.min(distance1, distance2)
 
+	--print(distance_min)
+
+	--local margin_of_error_time = 0.5
+
 	--Partial Braking
 	local acc1 = 0.4 * 9.81
-	local time1 = speed / acc1
+	local time1 = speed / (2 * acc1)
 	
 	--Full Braking
-	local acc2 = 1.1 * 9.81
-	local time2 = speed / acc2
-	
-	--print("time: " .. time2)
-	--print(d_min)
-	
-	--local x = (speed * speed) / (2 * a)
+	local acc2 = 1 * 9.81
+	local time2 = speed / (2 * acc2)
 
-	local reaction_time = 0.0
-	local stopping_time = distance_min / speed
-	
 	--Time to collision
-	local ttc = stopping_time - reaction_time
+	local ttc = distance_min / speed
 	
-	print("TTC: " .. ttc .. ", t: " .. time2)
-	
-	--print("")
-	--print("Distance:" ..d)
-	--print("Min Distance" ..x)
-	--print()
+	print("TTC: " .. tonumber(string.format("%.2f", ttc)) .. ", TTC for braking: " .. tonumber(string.format("%.2f", time2)))
 
 	--Maximum Braking
 	if ttc <= time2 then
+		--print("filter: " .. input.state.brake.filter)
+	
 		system_active = true
-		input.event("brake", 1, FILTER_DIRECT)
-		
+		input.event("brake", 1, -1)
+
 		brake_applications = 1
 		
+		print("AUTOMATIC EMERGENCY BRAKING ACTIVATED!")
+			
 	--Moderate Braking
 	--elseif ttc <= t1 then
 	--	system_active = true
@@ -195,13 +186,11 @@ local function updateGFX(dt)
 		system_active = false
 	
 		if last_system_active ~= system_active then
-			input.event("brake", 0, FILTER_DIRECT)
+			input.event("brake", 0, -1)
 		end
 	end
 	
 	last_system_active = system_active
-	
-	
 end
  
 M.updateGFX = updateGFX 
