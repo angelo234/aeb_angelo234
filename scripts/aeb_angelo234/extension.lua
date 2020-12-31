@@ -2,20 +2,15 @@
 -- If a copy of the bCDDL was not distributed with this
 -- file, You can obtain one at http://beamng.com/bCDDL-1.1.txt
 
---JS uses this value when resetting app but not level
-aeb_angelo234_func_params = {}
+local aeb_angelo234_json_hit_arr = {}
 
 local M = {}
 
-local function clear_array()
-	for x in pairs (aeb_angelo234_func_params) do
-		aeb_angelo234_func_params[x] = nil
-	end
-end
+function aeb_angelo234_castRayDebug(json_param)
+	local params = jsonDecode(json_param)
 
-function aeb_angelo234_castRayDebug()
-	local json_origin = jsonDecode(aeb_angelo234_func_params[0])
-	local json_dest = jsonDecode(aeb_angelo234_func_params[1])
+	local json_origin = params[1]
+	local json_dest = params[2]
 	
 	local origin = vec3(json_origin.x, json_origin.y, json_origin.z)
 	local dest = vec3(json_dest.x, json_dest.y, json_dest.z)
@@ -23,21 +18,23 @@ function aeb_angelo234_castRayDebug()
 	local hit = castRayDebug(
 	origin,
 	dest,
-	aeb_angelo234_func_params[2],
-	aeb_angelo234_func_params[3]
+	params[3],
+	params[4]
 	)
 	
 	if hit == nil then
-		return "no_hit"
-	end	
+		aeb_angelo234_json_hit_arr[params[5]] = {}
 	
-	clear_array()
+		return "'" .. jsonEncode(aeb_angelo234_json_hit_arr) .. "'"
 	
-	local info = {hit.norm, hit.dist, hit.pt}
-	
-	local json_hit = jsonEncode(info)
+	else
+		local info = {hit.norm, hit.dist, hit.pt, params[5]}
 
-	return json_hit
+		aeb_angelo234_json_hit_arr[params[5]] = info
+		
+		return "'" .. jsonEncode(aeb_angelo234_json_hit_arr) .. "'"
+	end	
 end
+
 
 return M

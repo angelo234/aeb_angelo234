@@ -8,22 +8,52 @@ local last_system_active = false
 local system_active = false
 local brake_applications = 0
 
-local function perform_raycast(origin, dest)
-	obj:queueGameEngineLua("aeb_angelo234_func_params[0] = '" .. jsonEncode(origin) .. "'")
-	obj:queueGameEngineLua("aeb_angelo234_func_params[1] = '" .. jsonEncode(dest) .. "'")
-	obj:queueGameEngineLua("aeb_angelo234_func_params[2] = true")
-	obj:queueGameEngineLua("aeb_angelo234_func_params[3] = true")
+local function performRaycast(origin, dest, index)
+	local param_arr = {origin, dest, false, false, index}
 	
-	obj:queueGameEngineLua('be:getPlayerVehicle(0):queueLuaCommand("raycastdata = (\'"..aeb_angelo234_castRayDebug().."\')")')
+	obj:queueGameEngineLua("be:getPlayerVehicle(0):queueLuaCommand('raycastdata = ' .. aeb_angelo234_castRayDebug('" ..jsonEncode(param_arr) .. "'))")
+
+	local data = jsonDecode(raycastdata)
 	
-	if raycastdata == nil or raycastdata == "no_hit" then
+	if data == nil then
+		return nil
+	end
+	
+	if data[index] == nil or data[index] == "no_hit" then
 		return nil
 	end
 	
 	--Parameters: hit.norm, hit.dist, hit.pt
-	local json_hit = jsonDecode(raycastdata)
+	local hit = data[index]
 	
-	return json_hit
+	if table.getn(hit) == 0 then
+		return nil
+	end
+	
+	return hit
+end
+
+local function processRaycastGetDistance(origin, dest, index)
+	local json_hit = performRaycast(origin, dest, index)
+	
+	if json_hit == nil then
+		return 99999999
+	end
+
+	local norm = json_hit[1]
+	
+	local norm_x = math.abs(norm.x)
+	local norm_y = math.abs(norm.y)
+	
+	if norm_x < 0.5 and norm_y < 0.5 then
+		return 99999999
+	end
+	
+	local distance = json_hit[2]
+	
+	distance = distance - 2.5
+
+	return distance
 end
 
 local function updateGFX(dt)
@@ -61,19 +91,26 @@ local function updateGFX(dt)
 		end
 	end
 	
+	if speed < 0.5 then
+		return
+	end
+	
 	local max_d = 500
 	local h1 = 0.5
 	local h2 = 0.4
-
+	
 	--Set origin of raycast offset from center of vehicle
 	local offset_pos1 = vec3(0,0,0)
 	local offset_pos2 = vec3(0,0,0)
+	local offset_pos3 = vec3(0,0,0)
 	
 	local offset_rot1 = vec3(0,0,0.03)
 	local offset_rot2 = vec3(0,0,0.015)
+	local offset_rot3 = vec3(0,0,-0.015)
 	
 	local dir1 = vec3(obj:getDirectionVector()):__add(offset_rot1):normalized()
 	local dir2 = vec3(obj:getDirectionVector()):__add(offset_rot2):normalized()
+	local dir3 = vec3(obj:getDirectionVector()):__add(offset_rot3):normalized()
 	
 	offset_pos1:set(
 	offset_pos1.x * dir1.x,
@@ -86,12 +123,22 @@ local function updateGFX(dt)
 	offset_pos2.y * dir2.y,
 	offset_pos2.z * dir2.z
 	)
+	
+	offset_pos3:set(
+	offset_pos3.x * dir3.x,
+	offset_pos3.y * dir3.y,
+	offset_pos3.z * dir3.z
+	)
 
 	local origin1 = vec3(obj:getPosition()):__add(offset_pos1)
 	local origin2 = vec3(obj:getPosition()):__add(offset_pos2)
+	local origin3 = vec3(obj:getPosition()):__add(offset_pos3)
 
 	local dest1 = dir1:__mul(500):__add(origin1)
 	local dest2 = dir2:__mul(500):__add(origin2)
+	local dest3 = dir3:__mul(500):__add(origin3)
+
+	
 
 	--x = ?
 	--y = ?
@@ -101,55 +148,11 @@ local function updateGFX(dt)
 	--local d1 = obj:castRayStatic(pos:__add(offset_pos1):toFloat3(), dir:__add(offset_rot1):normalized():toFloat3(), max_d)	
 	--local d2 = obj:castRayStatic(pos:__add(offset_pos2):toFloat3(), dir:__add(offset_rot2):normalized():toFloat3(), max_d)
 
-	--1st Raycast
-
-	local json_hit1 = perform_raycast(origin1, dest1)
+	local distance1 = processRaycastGetDistance(origin1, dest1, 1)
+	local distance2 = processRaycastGetDistance(origin2, dest2, 2)
+	local distance3 = processRaycastGetDistance(origin3, dest3, 3)
 	
-	if json_hit1 == nil then
-		return
-	end
-	
-	local distance1 = json_hit1[2]
-	
-	distance1 = distance1 - 2.5
-	
-	local norm1 = json_hit1[1]
-	
-	local norm1_x = math.abs(norm1.x)
-	local norm1_y = math.abs(norm1.y)
-	
-	if norm1_x < 0.5 and norm1_y < 0.5 then
-		return
-	end
-	
-	--print("distance 1: " ..distance1)
-	--dump(json_hit1[1])
-
-
-	--2nd Raycast
-
-	local json_hit2 = perform_raycast(origin2, dest2)
-	
-	if json_hit2 == nil then
-		return
-	end
-	
-	local distance2 = json_hit2[2]
-	
-	distance2 = distance2 - 2.5
-
-	local norm2 = json_hit2[1]
-	
-	local norm2_x = math.abs(norm2.x)
-	local norm2_y = math.abs(norm2.y)
-	
-	if norm2_x < 0.5 and norm2_y < 0.5 then
-		return
-	end
-	
-	local distance_min = math.min(distance1, distance2)
-
-	--print(distance_min)
+	local distance_min = math.min(distance1, distance2, distance3)
 
 	--local margin_of_error_time = 0.5
 
@@ -164,7 +167,7 @@ local function updateGFX(dt)
 	--Time to collision
 	local ttc = distance_min / speed
 	
-	print("TTC: " .. tonumber(string.format("%.2f", ttc)) .. ", TTC for braking: " .. tonumber(string.format("%.2f", time2)))
+	--print("TTC: " .. tonumber(string.format("%.2f", ttc)) .. ", TTC for braking: " .. tonumber(string.format("%.2f", time2)))
 
 	--Maximum Braking
 	if ttc <= time2 then
@@ -175,7 +178,7 @@ local function updateGFX(dt)
 
 		brake_applications = 1
 		
-		print("AUTOMATIC EMERGENCY BRAKING ACTIVATED!")
+		--print("AUTOMATIC EMERGENCY BRAKING ACTIVATED!")
 			
 	--Moderate Braking
 	--elseif ttc <= t1 then
