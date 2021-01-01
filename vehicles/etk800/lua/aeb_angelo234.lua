@@ -8,10 +8,10 @@ local last_system_active = false
 local system_active = false
 local brake_applications = 0
 
-local function performRaycast(origin, dest, index)
-	local param_arr = {origin, dest, false, false, index}
+local function performGERaycast(origin, dest, index)
+	local param_arr = {origin, dest, false, true, index, true}
 	
-	obj:queueGameEngineLua("be:getPlayerVehicle(0):queueLuaCommand('raycastdata = ' .. aeb_angelo234_castRayDebug('" ..jsonEncode(param_arr) .. "'))")
+	obj:queueGameEngineLua("be:getPlayerVehicle(0):queueLuaCommand('raycastdata = ' .. aeb_angelo234_castRay('" ..jsonEncode(param_arr) .. "'))")
 
 	local data = jsonDecode(raycastdata)
 	
@@ -33,11 +33,11 @@ local function performRaycast(origin, dest, index)
 	return hit
 end
 
-local function processRaycastGetDistance(origin, dest, index)
-	local json_hit = performRaycast(origin, dest, index)
+local function processGERaycastGetDistance(origin, dest, index)
+	local json_hit = performGERaycast(origin, dest, index)
 	
 	if json_hit == nil then
-		return 99999999
+		return {9999, false}
 	end
 
 	local norm = json_hit[1]
@@ -45,15 +45,143 @@ local function processRaycastGetDistance(origin, dest, index)
 	local norm_x = math.abs(norm.x)
 	local norm_y = math.abs(norm.y)
 	
-	if norm_x < 0.5 and norm_y < 0.5 then
-		return 99999999
-	end
-	
 	local distance = json_hit[2]
+	
+	if norm_x < 0.5 and norm_y < 0.5 then
+		return {distance, false}
+	end
 	
 	distance = distance - 2.5
 
-	return distance
+	return {distance, true}
+end
+
+local function getMinimumDistanceFromRaycast()
+	local distance_min = 9999 
+
+	--5 degrees
+	local vfov = 0.0872665
+	local iterations = 5
+	local rad_per_iter = vfov / iterations
+	--2 degrees
+	local offset_rads = 0.0349066
+	
+	for i = 1, iterations do
+		local offset_pos = vec3(0,0,1)
+		local offset_rot = vec3(0,0,offset_rads - rad_per_iter * i)
+
+		local dir = vec3(obj:getDirectionVector()):__add(offset_rot):normalized()
+		
+		--offset_pos:set(
+		--offset_pos.x * dir.x,
+		--offset_pos.y * dir.y,
+		--offset_pos.z * dir.z
+		--)
+		
+		local origin = vec3(obj:getPosition()):__add(offset_pos)
+		local dest = dir:__mul(max_distance):__add(origin)	
+		
+		local distance_ge = processGERaycastGetDistance(origin, dest, i)
+		
+		--If it didn't hit a wall but maybe ground, then set distance as large value
+		if distance_ge[2] == false then	
+			distance_ge[1] = 9999
+		end
+
+		distance_min = math.min(distance_ge[1], distance_min)
+	end
+
+	--[[
+	for i = 1, iterations do
+		local offset_pos = vec3(0,0,0)
+		local offset_rot = vec3(0,0,rad_per_iter * i + -0.0523599)
+
+		local dir = vec3(obj:getDirectionVector()):__add(offset_rot):normalized()
+		
+		--offset_pos:set(
+		--offset_pos.x * dir.x,
+		--offset_pos.y * dir.y,
+		--offset_pos.z * dir.z
+		--)
+		
+		local origin = vec3(obj:getPosition()):__add(offset_pos)
+		local dest = dir:__mul(max_distance):__add(origin)	
+		
+		local distance_ge = processGERaycastGetDistance(origin, dest, i)
+		
+		local distance_ve = obj:castRayStatic(origin:toFloat3(), dir:toFloat3(), max_distance)
+		
+		--8888 = hit the ground
+		--9999 = didn't hit anything
+		
+		local margin_error = 1.5
+		
+		--If GE ray and VE ray are about same distance but GE ray didn't hit wall, then VE ray is irrelevant
+		if distance_ge[2] == false then
+			--print("GE: " .. distance_ge[1] .. ", VE: " .. distance_ve) 
+		
+			if distance_ge[1] < distance_ve + margin_error and distance_ge[1] > distance_ve - margin_error then
+				--print("irrelevant")
+				distance_ve = 8888
+			end
+			
+			distance_ge[1] = 8888
+		end
+		
+		distance_min = math.min(distance_ge[1], distance_min, distance_ve)
+	end
+	]]--
+	
+	return distance_min
+end
+
+local function getMinimumDistanceFromVehicles()
+	local distance_min = 9999
+	local veh_id = obj:getID()	
+	
+	--GE Lua only
+	--local objects = map.objects
+	
+	return distance_min
+end
+
+local function calculateTTCAndBrake()
+	--Partial Braking
+	local acc1 = 0.4 * 9.81
+	local time1 = speed / (2 * acc1)
+	
+	--Full Braking
+	local acc2 = 1 * 9.81
+	local time2 = speed / (2 * acc2)
+
+	--Time to collision
+	local ttc = distance_min / speed
+	
+	print("TTC: " .. tonumber(string.format("%.2f", ttc)) .. ", TTC for braking: " .. tonumber(string.format("%.2f", time2)))
+
+	--Maximum Braking
+	if ttc <= time2 then
+		--print("filter: " .. input.state.brake.filter)
+	
+		system_active = true
+		input.event("brake", 1, -1)
+
+		brake_applications = 1
+		
+		--print("AUTOMATIC EMERGENCY BRAKING ACTIVATED!")
+			
+	--Moderate Braking
+	--elseif ttc <= t1 then
+	--	system_active = true
+	--	input.event("brake", 0.4, FILTER_DIRECT)
+	--Deactivate system
+	else
+		system_active = false
+	
+		if last_system_active ~= system_active then
+			input.event("brake", 0, -1)
+		end
+	end
 end
 
 local function updateGFX(dt)
@@ -95,103 +223,17 @@ local function updateGFX(dt)
 		return
 	end
 	
-	local max_d = 500
+	local max_distance = 250
 	local h1 = 0.5
 	local h2 = 0.4
 	
-	--Set origin of raycast offset from center of vehicle
-	local offset_pos1 = vec3(0,0,0)
-	local offset_pos2 = vec3(0,0,0)
-	local offset_pos3 = vec3(0,0,0)
-	
-	local offset_rot1 = vec3(0,0,0.03)
-	local offset_rot2 = vec3(0,0,0.015)
-	local offset_rot3 = vec3(0,0,-0.015)
-	
-	local dir1 = vec3(obj:getDirectionVector()):__add(offset_rot1):normalized()
-	local dir2 = vec3(obj:getDirectionVector()):__add(offset_rot2):normalized()
-	local dir3 = vec3(obj:getDirectionVector()):__add(offset_rot3):normalized()
-	
-	offset_pos1:set(
-	offset_pos1.x * dir1.x,
-	offset_pos1.y * dir1.y,
-	offset_pos1.z * dir1.z
-	)
-	
-	offset_pos2:set(
-	offset_pos2.x * dir2.x,
-	offset_pos2.y * dir2.y,
-	offset_pos2.z * dir2.z
-	)
-	
-	offset_pos3:set(
-	offset_pos3.x * dir3.x,
-	offset_pos3.y * dir3.y,
-	offset_pos3.z * dir3.z
-	)
-
-	local origin1 = vec3(obj:getPosition()):__add(offset_pos1)
-	local origin2 = vec3(obj:getPosition()):__add(offset_pos2)
-	local origin3 = vec3(obj:getPosition()):__add(offset_pos3)
-
-	local dest1 = dir1:__mul(500):__add(origin1)
-	local dest2 = dir2:__mul(500):__add(origin2)
-	local dest3 = dir3:__mul(500):__add(origin3)
-
-	
-
 	--x = ?
 	--y = ?
 	--z = pitch
-	
-	--Cast ray from front of vehicle x distance away
-	--local d1 = obj:castRayStatic(pos:__add(offset_pos1):toFloat3(), dir:__add(offset_rot1):normalized():toFloat3(), max_d)	
-	--local d2 = obj:castRayStatic(pos:__add(offset_pos2):toFloat3(), dir:__add(offset_rot2):normalized():toFloat3(), max_d)
 
-	local distance1 = processRaycastGetDistance(origin1, dest1, 1)
-	local distance2 = processRaycastGetDistance(origin2, dest2, 2)
-	local distance3 = processRaycastGetDistance(origin3, dest3, 3)
+	local distance_min_raycast = getMinimumDistanceFromRaycast()
 	
-	local distance_min = math.min(distance1, distance2, distance3)
-
-	--local margin_of_error_time = 0.5
-
-	--Partial Braking
-	local acc1 = 0.4 * 9.81
-	local time1 = speed / (2 * acc1)
-	
-	--Full Braking
-	local acc2 = 1 * 9.81
-	local time2 = speed / (2 * acc2)
-
-	--Time to collision
-	local ttc = distance_min / speed
-	
-	--print("TTC: " .. tonumber(string.format("%.2f", ttc)) .. ", TTC for braking: " .. tonumber(string.format("%.2f", time2)))
-
-	--Maximum Braking
-	if ttc <= time2 then
-		--print("filter: " .. input.state.brake.filter)
-	
-		system_active = true
-		input.event("brake", 1, -1)
-
-		brake_applications = 1
-		
-		--print("AUTOMATIC EMERGENCY BRAKING ACTIVATED!")
-			
-	--Moderate Braking
-	--elseif ttc <= t1 then
-	--	system_active = true
-	--	input.event("brake", 0.4, FILTER_DIRECT)
-	--Deactivate system
-	else
-		system_active = false
-	
-		if last_system_active ~= system_active then
-			input.event("brake", 0, -1)
-		end
-	end
+	calculateTTCAndBrake(distance_min_raycast)
 	
 	last_system_active = system_active
 end
