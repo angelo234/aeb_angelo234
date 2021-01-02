@@ -4,6 +4,8 @@
 
 local M = {}
 
+local max_raycast_distance = 250
+
 local last_system_active = false
 local system_active = false
 local brake_applications = 0
@@ -34,18 +36,18 @@ local function performGERaycast(origin, dest, index)
 end
 
 local function processGERaycastGetDistance(origin, dest, index)
-	local json_hit = performGERaycast(origin, dest, index)
+	local hit = performGERaycast(origin, dest, index)
 	
-	if json_hit == nil then
+	if hit == nil then
 		return {9999, false}
 	end
 
-	local norm = json_hit[1]
+	local norm = hit[1]
 	
 	local norm_x = math.abs(norm.x)
 	local norm_y = math.abs(norm.y)
 	
-	local distance = json_hit[2]
+	local distance = hit[2]
 	
 	if norm_x < 0.5 and norm_y < 0.5 then
 		return {distance, false}
@@ -58,6 +60,8 @@ end
 
 local function getMinimumDistanceFromRaycast()
 	local distance_min = 9999 
+	local h1 = 0.5
+	local h2 = 0.4
 
 	--5 degrees
 	local vfov = 0.0872665
@@ -79,7 +83,7 @@ local function getMinimumDistanceFromRaycast()
 		--)
 		
 		local origin = vec3(obj:getPosition()):__add(offset_pos)
-		local dest = dir:__mul(max_distance):__add(origin)	
+		local dest = dir:__mul(max_raycast_distance):__add(origin)	
 		
 		local distance_ge = processGERaycastGetDistance(origin, dest, i)
 		
@@ -105,11 +109,11 @@ local function getMinimumDistanceFromRaycast()
 		--)
 		
 		local origin = vec3(obj:getPosition()):__add(offset_pos)
-		local dest = dir:__mul(max_distance):__add(origin)	
+		local dest = dir:__mul(max_raycast_distance):__add(origin)	
 		
 		local distance_ge = processGERaycastGetDistance(origin, dest, i)
 		
-		local distance_ve = obj:castRayStatic(origin:toFloat3(), dir:toFloat3(), max_distance)
+		local distance_ve = obj:castRayStatic(origin:toFloat3(), dir:toFloat3(), max_raycast_distance)
 		
 		--8888 = hit the ground
 		--9999 = didn't hit anything
@@ -136,16 +140,40 @@ local function getMinimumDistanceFromRaycast()
 end
 
 local function getMinimumDistanceFromVehicles()
-	local distance_min = 9999
-	local veh_id = obj:getID()	
+	local this_veh_id = obj:getID()	
 	
-	--GE Lua only
-	--local objects = map.objects
+	local offset_pos = vec3(0,0,1)
+	local offset_rot = vec3(0,0,0)
+
+	local dir = vec3(obj:getDirectionVector()):__add(offset_rot):normalized()
 	
-	return distance_min
+	--offset_pos:set(
+	--offset_pos.x * dir.x,
+	--offset_pos.y * dir.y,
+	--offset_pos.z * dir.z
+	--)
+	
+	local origin = vec3(obj:getPosition()):__add(offset_pos)
+	local dest = dir:__mul(max_raycast_distance):__add(origin)	
+	
+	local param_arr = {this_veh_id, max_raycast_distance, origin, dest, dir}
+	
+	obj:queueGameEngineLua("be:getPlayerVehicle(0):queueLuaCommand('vehicleraycastdata = ' .. aeb_angelo234_getDistanceToVehicleInPath('" ..jsonEncode(param_arr) .. "'))")
+
+	local data = jsonDecode(vehicleraycastdata)
+	
+	if data == nil then
+		return 9999
+	end
+	
+	local distance = data[1]
+	
+	distance = distance - 2.5
+
+	return distance
 end
 
-local function calculateTTCAndBrake()
+local function calculateTTCAndBrake(distance_min, speed)
 	--Partial Braking
 	local acc1 = 0.4 * 9.81
 	local time1 = speed / (2 * acc1)
@@ -223,17 +251,16 @@ local function updateGFX(dt)
 		return
 	end
 	
-	local max_distance = 250
-	local h1 = 0.5
-	local h2 = 0.4
-	
 	--x = ?
 	--y = ?
 	--z = pitch
 
 	local distance_min_raycast = getMinimumDistanceFromRaycast()
+	local distance_min_vehicle = getMinimumDistanceFromVehicles()
 	
-	calculateTTCAndBrake(distance_min_raycast)
+	local distance_min = math.min(distance_min_raycast, distance_min_vehicle)
+	
+	calculateTTCAndBrake(distance_min, speed)
 	
 	last_system_active = system_active
 end
