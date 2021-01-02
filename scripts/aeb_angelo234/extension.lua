@@ -3,36 +3,38 @@
 -- file, You can obtain one at http://beamng.com/bCDDL-1.1.txt
 
 local json_hit_arr = {}
+local json_hit_veh_arr = {}
 
 local M = {}
 
 function aeb_angelo234_castRay(json_param)
 	local params = jsonDecode(json_param)
 
-	local json_origin = params[1]
-	local json_dest = params[2]
-	
-	local origin = vec3(json_origin.x, json_origin.y, json_origin.z)
-	local dest = vec3(json_dest.x, json_dest.y, json_dest.z)
+	local origin = vec3(params[1].x, params[1].y, params[1].z)
+	local dest = vec3(params[2].x, params[2].y, params[2].z)
+	local includeTerrain = params[3]
+	local renderGeometry = params[4]
+	local index = params[5]
+	local debug_mode = params[6]
 	
 	local hit = nil
 	
 	--Debug Mode?
-	if params[6] then
-		hit = castRayDebug(origin, dest, params[3], params[4])	
+	if debug_mode then
+		hit = castRayDebug(origin, dest, includeTerrain, renderGeometry)	
 	else
-		hit = castRay(origin, dest, params[3], params[4])
+		hit = castRay(origin, dest, includeTerrain, renderGeometry)
 	end
 
 	if hit == nil then
-		json_hit_arr[params[5]] = {}
+		json_hit_arr[index] = {}
 	
 		return "'" .. jsonEncode(json_hit_arr) .. "'"
 	
 	else
-		local info = {hit.norm, hit.dist, hit.pt, params[5]}
+		local info = {hit.norm, hit.dist, hit.pt, index}
 
-		json_hit_arr[params[5]] = info
+		json_hit_arr[index] = info
 		
 		return "'" .. jsonEncode(json_hit_arr) .. "'"
 	end	
@@ -46,15 +48,25 @@ function aeb_angelo234_getDistanceToVehicleInPath(json_param)
 	local raycast_origin = vec3(params[3].x, params[3].y, params[3].z)
 	local raycast_dest = vec3(params[4].x, params[4].y, params[4].z)
 	local raycast_dir = vec3(params[5].x, params[5].y, params[5].z)
-	
-	local objects = map.objects
-	
-	local this_veh_pos = objects[this_veh_id].pos
-	
+	local index = params[6]
+
 	local min_distance = 9999
+
+	--local objects = map.objects
+	--local this_veh_pos = objects[this_veh_id].pos
 	
-	for veh_id, value in pairs(objects) do
-		if veh_id ~= this_veh_id then
+	--map.objects for some reason only updates when removing vehicles
+	--so this is a workaround to get all vehicle IDs
+	
+	local veh_names = {}
+	
+	Lua:findObjectsByClassAsTable("BeamNGVehicle", veh_names)
+	
+	for _, veh_name in pairs(veh_names) do
+		local veh_id = scenetree.findObject(veh_name):getID()
+	
+		--print(veh_id)
+		if veh_id ~= this_veh_id then	
 			local bb = be:getObjectByID(veh_id):getSpawnWorldOOBB()
 			
 			local other_veh_pos = vec3(bb:getCenter())
@@ -68,11 +80,15 @@ function aeb_angelo234_getDistanceToVehicleInPath(json_param)
 				distance = 9999
 			end
 			
+			--print("distance: " .. distance)
+			
 			min_distance = math.min(distance, min_distance)
 		end
 	end
 	
-	return "'" .. jsonEncode({min_distance}) .. "'"
+	json_hit_veh_arr[index] = min_distance
+	
+	return "'" .. jsonEncode(json_hit_veh_arr) .. "'"
 end
 
 return M
