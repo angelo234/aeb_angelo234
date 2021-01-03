@@ -51,6 +51,7 @@ function aeb_angelo234_getDistanceToVehicleInPath(json_param)
 	local index = params[6]
 
 	local min_distance = 9999
+	local min_veh_id = -1
 
 	--local objects = map.objects
 	--local this_veh_pos = objects[this_veh_id].pos
@@ -61,6 +62,15 @@ function aeb_angelo234_getDistanceToVehicleInPath(json_param)
 	local veh_names = {}
 	
 	Lua:findObjectsByClassAsTable("BeamNGVehicle", veh_names)
+	
+	--[[
+	local this_velocity = vec3(be:getObjectByID(this_veh_id).obj:getVelocity())
+	local this_bb = be:getObjectByID(this_veh_id):getSpawnWorldOOBB()		
+	local this_veh_pos = vec3(this_bb:getCenter())
+	local this_x = this_bb:getHalfExtents().x * vec3(this_bb:getAxis(0))
+	local this_y = 250 * vec3(this_bb:getAxis(1))
+	local this_z = this_bb:getHalfExtents().z * vec3(this_bb:getAxis(2))
+	]]--
 	
 	for _, veh_name in pairs(veh_names) do
 		local veh_id = scenetree.findObject(veh_name):getID()
@@ -73,20 +83,39 @@ function aeb_angelo234_getDistanceToVehicleInPath(json_param)
 			local x = bb:getHalfExtents().x * vec3(bb:getAxis(0))
 			local y = bb:getHalfExtents().y * vec3(bb:getAxis(1))
 			local z = bb:getHalfExtents().z * vec3(bb:getAxis(2))
-			
+
+			--local overlap = overlapsOBB_OBB(this_veh_pos, this_x, this_y, this_z, other_veh_pos, x, y, z)		
+			--print(overlap)
+			--local distance = 9999
+
 			local distance = intersectsRay_OBB(raycast_origin, raycast_dir, other_veh_pos, x, y, z) 
-			--local distance = (this_veh_pos - other_veh_pos):length()
+			
 			if distance < 0 then
-				distance = 9999
+				distance = 9999			
 			end
 			
 			--print("distance: " .. distance)
 			
 			min_distance = math.min(distance, min_distance)
+			
+			if min_distance == distance then
+				min_veh_id = veh_id
+			end
 		end
 	end
 	
-	json_hit_veh_arr[index] = min_distance
+	if json_hit_veh_arr[index] == nil then
+		json_hit_veh_arr[index] = {}
+	end
+	
+	if min_veh_id ~= -1 then
+		local other_velocity = vec3(be:getObjectByID(min_veh_id).obj:getVelocity())
+		json_hit_veh_arr[index][2] = other_velocity
+	else
+		json_hit_veh_arr[index][2] = vec3(0,0,0)
+	end
+	
+	json_hit_veh_arr[index][1] = min_distance
 	
 	return "'" .. jsonEncode(json_hit_veh_arr) .. "'"
 end

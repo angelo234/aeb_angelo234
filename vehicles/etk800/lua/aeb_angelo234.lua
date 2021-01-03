@@ -5,10 +5,14 @@
 local M = {}
 
 local max_raycast_distance = 250
+local distance_from_obstacle = 1
+local distance_from_front_of_car = 2
+
+local iteration_num = 0
 
 local last_system_active = false
 local system_active = false
-local brake_applications = 0
+
 
 local function performGERaycast(origin, dest, index)
 	local param_arr = {origin, dest, false, true, index, true}
@@ -53,7 +57,7 @@ local function processGERaycastGetDistance(origin, dest, index)
 		return {distance, false}
 	end
 	
-	distance = distance - 2.5
+	distance = distance - distance_from_obstacle - distance_from_front_of_car
 
 	return {distance, true}
 end
@@ -68,45 +72,45 @@ local function processGERaycastVehiclesGetDistance(origin, dest, dir, index)
 	local data = jsonDecode(vehicleraycastdata)
 	
 	if data == nil then
-		return 9999
+		return {9999, vec3(0,0,0)}
 	end
 	
 	if data[index] == nil then
-		return 9999
+		return {9999, vec3(0,0,0)}
 	end
 	
-	local distance = data[index]
+	local distance = data[index][1]
+	local velocity_other_veh = data[index][2]
 	
-	distance = distance - 2.5
+	distance = distance - distance_from_obstacle - distance_from_front_of_car
 
-	return distance
+	return {distance, velocity_other_veh}
 end
 
-local function getMinimumDistanceFromRaycast()
+local function getRaycastData(dt)
 	local distance_min = 9999 
 	local h1 = 0.5
 	local h2 = 0.4
 
 	--5 degrees
 	local vfov = 0.0872665
-	local iterations = 5
+	local iterations = 8
 	local rad_per_iter = vfov / iterations
 	--2 degrees
 	local offset_rads = 0.0349066
 	
-	for i = 1, iterations do
-		local offset_pos = vec3(0,0,1)
+	for i = 1 + iteration_num, iterations, 4 do
 		local offset_rot = vec3(0,0,offset_rads - rad_per_iter * i)
-
 		local dir = vec3(obj:getDirectionVector()):__add(offset_rot):normalized()
+	
+		--local offset_pos = vec3(0,0,1) + vec3(dir.x * 2, dir.y * 2, 0)
+		local offset_pos = vec3(0,0,1)
+		--dump(vec3(obj:getVelocity()) * dt)
 		
-		--offset_pos:set(
-		--offset_pos.x * dir.x,
-		--offset_pos.y * dir.y,
-		--offset_pos.z * dir.z
-		--)
+		local pos = vec3(obj:getPosition()) + 2 * vec3(obj:getVelocity()) * dt
+		--local pos = vec3(obj:getFrontPosition())
 		
-		local origin = vec3(obj:getPosition()):__add(offset_pos)
+		local origin = pos:__add(offset_pos)
 		local dest = dir:__mul(max_raycast_distance):__add(origin)	
 		
 		local distance_ge = processGERaycastGetDistance(origin, dest, i)
@@ -163,50 +167,80 @@ local function getMinimumDistanceFromRaycast()
 	return distance_min
 end
 
-local function getMinimumDistanceFromVehicles()
+local function getVehicleRaycastData(dt)
 	local distance_min = 9999 
 
 	--5 degrees
 	local vfov = 0.0872665
-	local iterations = 5
+	local iterations = 8
 	local rad_per_iter = vfov / iterations
 	--2 degrees
 	local offset_rads = 0.0349066
 	
-	for i = 1, iterations do
-		local offset_pos = vec3(0,0,1)
+	local data_arr = {}
+	local closest_index = 1
+	
+	for i = 1 + iteration_num, iterations, 4 do
 		local offset_rot = vec3(0,0,offset_rads - rad_per_iter * i)
-
 		local dir = vec3(obj:getDirectionVector()):__add(offset_rot):normalized()
+	
+		--local offset_pos = vec3(0,0,1) + vec3(dir.x * 2, dir.y * 2, 0)
+		local offset_pos = vec3(0,0,1)
+		--dump(vec3(obj:getVelocity()) * dt)
 		
-		--offset_pos:set(
-		--offset_pos.x * dir.x,
-		--offset_pos.y * dir.y,
-		--offset_pos.z * dir.z
-		--)
+		local pos = vec3(obj:getPosition()) + 2 * vec3(obj:getVelocity()) * dt
+		--local pos = vec3(obj:getFrontPosition())
 		
-		local origin = vec3(obj:getPosition()):__add(offset_pos)
+		local origin = pos:__add(offset_pos)
 		local dest = dir:__mul(max_raycast_distance):__add(origin)	
 		
-		local distance = processGERaycastVehiclesGetDistance(origin, dest, dir, i)
+		local data = processGERaycastVehiclesGetDistance(origin, dest, dir, i)
 
-		distance_min = math.min(distance, distance_min)
+		data_arr[i] = data
+
+		distance_min = math.min(data[1], distance_min)
+		
+		if distance_min == data[1] then
+			closest_index = i
+		end
 	end
 
-	return distance_min
+	return data_arr[closest_index]
 end
 
-local function calculateTTCAndBrake(distance_min, speed)
+local function calculateTTCAndBrake(distance_min, this_veh_speed, other_veh_velocity)
+	local norm_this_veh_vel = vec3(obj:getVelocity()):normalized()
+	
+	--This gets component velocity of other vehicle in direction of my vehicle
+	local other_veh_speed = vec3(
+	norm_this_veh_vel.x * other_veh_velocity.x,
+	norm_this_veh_vel.y * other_veh_velocity.y,
+	norm_this_veh_vel.z * other_veh_velocity.z)
+	:length()
+	
+	local vel_rel = this_veh_speed - other_veh_speed
+	
+	--Deactivate system if this car is slower than other car
+	if vel_rel <= 0 then
+		if system_active then
+			system_active = false
+			input.event("brake", 0, -1)
+		end	
+		return
+	end
+	
 	--Partial Braking
 	local acc1 = 0.4 * 9.81
-	local time1 = speed / (2 * acc1)
+	local time1 = vel_rel / (2 * acc1)
 	
 	--Full Braking
 	local acc2 = 1 * 9.81
-	local time2 = speed / (2 * acc2)
+	local time2 = vel_rel / (2 * acc2)
 
 	--Time to collision
-	local ttc = distance_min / speed
+	local ttc = distance_min / vel_rel
+	
+	--print("distance: " .. tonumber(string.format("%.2f", distance_min)))
 	
 	--print("TTC: " .. tonumber(string.format("%.2f", ttc)) .. ", TTC for braking: " .. tonumber(string.format("%.2f", time2)))
 
@@ -216,8 +250,6 @@ local function calculateTTCAndBrake(distance_min, speed)
 	
 		system_active = true
 		input.event("brake", 1, -1)
-
-		brake_applications = 1
 		
 		--print("AUTOMATIC EMERGENCY BRAKING ACTIVATED!")
 			
@@ -227,6 +259,8 @@ local function calculateTTCAndBrake(distance_min, speed)
 	--	input.event("brake", 0.4, FILTER_DIRECT)
 	--Deactivate system
 	else
+		--print("system deactivated")
+	
 		system_active = false
 	
 		if last_system_active ~= system_active then
@@ -236,12 +270,7 @@ local function calculateTTCAndBrake(distance_min, speed)
 end
 
 local function updateGFX(dt)
-	if system_active and brake_applications < 2 then
-		brake_applications = brake_applications + 1
-		--return
-	end
-
-	local speed = vec3(obj:getVelocity()):length()
+	local this_veh_speed = vec3(obj:getVelocity()):length()
 	
 	--Check if in reverse and if true, disable system
 	local in_reverse = electrics.values.reverse
@@ -257,20 +286,20 @@ local function updateGFX(dt)
 
 	if system_active then	
 		--Once stopped, if system was activated before, disable it and release brakes
-		if speed < 0.1 then
+		if this_veh_speed < 0.1 then
 			input.event("brake", 0, -1)
 			system_active = false
 			return
 			
 		--Keep brakes applied if system was activated before to stop car
-		elseif speed < 3 then
+		elseif this_veh_speed < 2 then
 			input.event("brake", 1, -1)
 			
 			return	
 		end
 	end
 	
-	if speed < 0.5 then
+	if this_veh_speed < 1.5 then
 		return
 	end
 	
@@ -278,12 +307,24 @@ local function updateGFX(dt)
 	--y = ?
 	--z = pitch
 
-	local distance_min_raycast = getMinimumDistanceFromRaycast()
-	local distance_min_vehicle = getMinimumDistanceFromVehicles()
+	local distance_min_raycast = getRaycastData(dt)
+	local veh_raycast_data = getVehicleRaycastData(dt)
 	
+	local distance_min_vehicle = veh_raycast_data[1]
+	local other_veh_velocity = veh_raycast_data[2]
+
 	local distance_min = math.min(distance_min_raycast, distance_min_vehicle)
 	
-	calculateTTCAndBrake(distance_min, speed)
+	--local distance_min = distance_min_raycast
+	--local other_veh_velocity = vec3(0,0,0)
+	
+	calculateTTCAndBrake(distance_min, this_veh_speed, other_veh_velocity)
+	
+	if iteration_num ~= 3 then
+		iteration_num = iteration_num + 1
+	else
+		iteration_num = 0
+	end
 	
 	last_system_active = system_active
 end
