@@ -1,9 +1,0 @@
-{
-  "name" : "Parking Aid",
-  "author": "angelo234",
-  "version": "1.0",
-  "description": "Adds parking aid to modern vehicles.",
-  "directive": "parkingAidAngelo234",
-  "domElement": "<parking-aid-angelo234></parking-aid-angelo234>",
-  "css": { "width": "350px", "height": "210px", "top": "200px", "left": "200px"}
-}
