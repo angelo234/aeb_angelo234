@@ -4,8 +4,8 @@
 
 local M = {}
 
-local max_raycast_distance = 250
-local distance_from_obstacle = 1
+local max_raycast_distance = 10
+local distance_from_obstacle = 0.5
 local distance_from_front_of_car = 2
 
 local iteration_num = 0
@@ -13,11 +13,10 @@ local iteration_num = 0
 local last_system_active = false
 local system_active = false
 
-
 local function performGERaycast(origin, dest, index)
 	local param_arr = {origin, dest, false, true, index, true}
 	
-	obj:queueGameEngineLua("be:getPlayerVehicle(0):queueLuaCommand('raycastdata = ' .. aeb_angelo234_castRay('" ..jsonEncode(param_arr) .. "'))")
+	obj:queueGameEngineLua("be:getPlayerVehicle(0):queueLuaCommand('raycastdata = ' .. parking_aid_angelo234_castRay('" ..jsonEncode(param_arr) .. "'))")
 
 	local data = jsonDecode(raycastdata)
 	
@@ -67,7 +66,7 @@ local function processGERaycastVehiclesGetDistance(origin, dest, dir, index)
 	
 	local param_arr = {this_veh_id, max_raycast_distance, origin, dest, dir, index}
 	
-	obj:queueGameEngineLua("be:getPlayerVehicle(0):queueLuaCommand('vehicleraycastdata = ' .. aeb_angelo234_getDistanceToVehicleInPath('" ..jsonEncode(param_arr) .. "'))")
+	obj:queueGameEngineLua("be:getPlayerVehicle(0):queueLuaCommand('vehicleraycastdata = ' .. parking_aid_angelo234_getDistanceToVehicleInPath('" ..jsonEncode(param_arr) .. "'))")
 
 	local data = jsonDecode(vehicleraycastdata)
 	
@@ -208,55 +207,26 @@ local function getVehicleRaycastData(dt)
 	return data_arr[closest_index]
 end
 
-local function calculateTTCAndBrake(distance_min, this_veh_speed, other_veh_velocity)
-	local norm_this_veh_vel = vec3(obj:getVelocity()):normalized()
-	
-	--This gets component velocity of other vehicle in direction of my vehicle
-	local other_veh_speed = vec3(
-	norm_this_veh_vel.x * other_veh_velocity.x,
-	norm_this_veh_vel.y * other_veh_velocity.y,
-	norm_this_veh_vel.z * other_veh_velocity.z)
-	:length()
-	
-	local vel_rel = this_veh_speed - other_veh_speed
-	
-	--Deactivate system if this car is slower than other car
-	if vel_rel <= 0 then
-		if system_active then
-			system_active = false
-			input.event("brake", 0, -1)
-		end	
-		return
-	end
-	
-	--Partial Braking
-	local acc1 = 0.4 * 9.81
-	local time1 = vel_rel / (2 * acc1)
-	
+local function calculateTTCAndBrake(distance_min, veh_speed)	
 	--Full Braking
-	local acc2 = 1 * 9.81
-	local time2 = vel_rel / (2 * acc2)
+	local acc = 1 * 9.81
+	local time_to_brake = veh_speed / (2 * acc)
 
 	--Time to collision
-	local ttc = distance_min / vel_rel
+	local ttc = distance_min / veh_speed
 	
 	--print("distance: " .. tonumber(string.format("%.2f", distance_min)))
 	
 	--print("TTC: " .. tonumber(string.format("%.2f", ttc)) .. ", TTC for braking: " .. tonumber(string.format("%.2f", time2)))
 
 	--Maximum Braking
-	if ttc <= time2 then
+	if ttc <= time_to_brake then
 		--print("filter: " .. input.state.brake.filter)
 	
 		system_active = true
 		input.event("brake", 1, -1)
 		
 		--print("AUTOMATIC EMERGENCY BRAKING ACTIVATED!")
-			
-	--Moderate Braking
-	--elseif ttc <= t1 then
-	--	system_active = true
-	--	input.event("brake", 0.4, FILTER_DIRECT)
 	--Deactivate system
 	else
 		--print("system deactivated")
@@ -276,6 +246,8 @@ local function updateGFX(dt)
 	local in_reverse = electrics.values.reverse
 
 	if in_reverse == 1 then
+		obj:queueGameEngineLua("parking_aid_angelo234_reverseCam(" .. dt .. ")")
+	
 		if system_active then
 			input.event("brake", 0, -1)
 			system_active = false
@@ -308,17 +280,19 @@ local function updateGFX(dt)
 	--z = pitch
 
 	local distance_min_raycast = getRaycastData(dt)
-	local veh_raycast_data = getVehicleRaycastData(dt)
 	
+	local veh_raycast_data = getVehicleRaycastData(dt)
 	local distance_min_vehicle = veh_raycast_data[1]
-	local other_veh_velocity = veh_raycast_data[2]
 
 	local distance_min = math.min(distance_min_raycast, distance_min_vehicle)
 	
 	--local distance_min = distance_min_raycast
 	--local other_veh_velocity = vec3(0,0,0)
 	
-	calculateTTCAndBrake(distance_min, this_veh_speed, other_veh_velocity)
+	calculateTTCAndBrake(distance_min, this_veh_speed)
+	
+	
+	
 	
 	if iteration_num ~= 3 then
 		iteration_num = iteration_num + 1

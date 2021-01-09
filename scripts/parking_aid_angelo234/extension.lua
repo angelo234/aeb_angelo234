@@ -2,12 +2,78 @@
 -- If a copy of the bCDDL was not distributed with this
 -- file, You can obtain one at http://beamng.com/bCDDL-1.1.txt
 
+local reverse_cam_fov = 120
+local reverse_cam_downwards_angle = 40 
+local line_width = 0.05
+local line_length = 1
+local line_offset_center = 0.5
+local line_offset_height = -0.5
+
 local json_hit_arr = {}
 local json_hit_veh_arr = {}
 
 local M = {}
 
-function aeb_angelo234_castRay(json_param)
+local function toColorI(colorF)
+  return ColorI(colorF.r * 255,
+                colorF.g * 255,
+                colorF.b * 255,
+                colorF.a * 255)
+end
+
+local function drawLeftLine(camPos, carDir)
+	debugDrawer:drawQuadSolid(
+	(camPos + vec3(carDir.y * line_offset_center, -carDir.x * line_offset_center, line_offset_height)):toPoint3F(),
+	(camPos + vec3(carDir.y * (line_width + line_offset_center), -carDir.x * (line_width + line_offset_center), line_offset_height)):toPoint3F(),
+	(camPos + vec3(carDir.y * (line_width + line_offset_center), -carDir.x * (line_width + line_offset_center), line_offset_height) + carDir * -line_length):toPoint3F(),
+	(camPos + vec3(carDir.y * line_offset_center, -carDir.x * line_offset_center, line_offset_height) + carDir * -line_length):toPoint3F(),
+	toColorI(ColorF(1,1,1,1)))
+end
+
+local function drawRightLine(camPos, carDir)
+	debugDrawer:drawQuadSolid(
+	(camPos + vec3(-carDir.y * (line_width + line_offset_center), carDir.x * (line_width + line_offset_center), line_offset_height)):toPoint3F(),
+	(camPos + vec3(-carDir.y * line_offset_center, carDir.x * line_offset_center, line_offset_height)):toPoint3F(),
+	(camPos + vec3(-carDir.y * line_offset_center, carDir.x * line_offset_center, line_offset_height) + carDir * -line_length):toPoint3F(),
+	(camPos + vec3(-carDir.y * (line_width + line_offset_center), carDir.x * (line_width + line_offset_center), line_offset_height) + carDir * -line_length):toPoint3F(),
+	toColorI(ColorF(1,1,1,1)))
+end
+
+function parking_aid_angelo234_reverseCam(dt)
+	local veh = be:getPlayerVehicle(0)
+	if veh == nil then return end
+
+	local veh_vel = vec3(veh.obj:getVelocity())
+	
+	--commands.setFreeCamera()
+	
+	local carPos = vec3(veh:getSpawnWorldOOBBRearPoint())
+	local carDir = vec3(veh.obj:getDirectionVector())
+	
+	--Fixes lag of carPos
+	carPos = carPos + veh_vel * dt
+	
+	--Set reverse cam little bit higher
+	local camPos = carPos + vec3(0,0,0.25)
+	
+	--Set downwards angle of camera
+	local camRot = carDir * -1 + vec3(0,0,-math.tan(reverse_cam_downwards_angle * math.pi / 180.0))
+
+	camRot = quatFromDir(camRot:normalized())
+	
+	--Set camera to rear of car
+	setCameraPosRot(camPos.x,camPos.y,camPos.z,camRot.x,camRot.y,camRot.z,camRot.w)
+
+	setCameraFov(reverse_cam_fov)
+	
+	--Draw trajectory lines on screen
+	drawLeftLine(camPos, carDir)
+	drawRightLine(camPos, carDir)
+	
+	--dump(carDir)
+end
+
+function parking_aid_angelo234_castRay(json_param)
 	local params = jsonDecode(json_param)
 
 	local origin = vec3(params[1].x, params[1].y, params[1].z)
@@ -40,7 +106,7 @@ function aeb_angelo234_castRay(json_param)
 	end	
 end
 
-function aeb_angelo234_getDistanceToVehicleInPath(json_param)
+function parking_aid_angelo234_getDistanceToVehicleInPath(json_param)
 	local params = jsonDecode(json_param)
 	
 	local this_veh_id = params[1]

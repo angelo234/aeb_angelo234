@@ -7,9 +7,9 @@ angular.module('beamng.apps')
 	]
 })
 
-.directive('aebAngelo234', ['UI_TEXT', 'bngApi', function (UI_TEXT, bngApi) {
+.directive('parkingAidAngelo234', ['UI_TEXT', 'bngApi', function (UI_TEXT, bngApi) {
 return {
-templateUrl: 'modules/apps/aeb_angelo234/app.html',
+templateUrl: 'modules/apps/parking_aid_angelo234/app.html',
 replace: true,
 restrict: 'EA',
 link: function (scope, element, attrs) {
